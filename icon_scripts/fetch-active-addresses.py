@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 from time import sleep
 
 import requests
@@ -6,12 +7,19 @@ import requests
 TRACKER_ENDPOINT = "https://tracker.icon.community/api/v1"
 LIMIT = 100
 
-START_TIMESTAMP = 1657800000
-END_TIMESTAMP = 1657886400
+START_TIMESTAMP = 1657152000
+END_TIMESTAMP = 1657756800
+
+START_DATETIME = datetime.utcfromtimestamp(START_TIMESTAMP).isoformat()
+END_DATETIME = datetime.utcfromtimestamp(END_TIMESTAMP).isoformat()
 
 
 def main():
-
+    """
+    This function maps start and end timestamps to blocks on the ICON blockchain,
+    then loops through all transactions in the block range, and compiles a list
+    of unique ICX addresses that made a blockchain transaction.
+    """
     ACTIVE_ADDRESSES = set()
 
     timestamp_range = (START_TIMESTAMP, END_TIMESTAMP)
@@ -19,28 +27,32 @@ def main():
     start_block = _convert_timestamp_to_block(timestamp_range[0])
     end_block = _convert_timestamp_to_block(timestamp_range[1])
 
+    print(f"Datetime Range: {START_DATETIME} = {END_DATETIME}")
     print(f"Block Range: {start_block} - {end_block}")
 
     sleep(2)
 
     i = 0
     while True:
+        sleep(0.005)
         skip = LIMIT * i
         addresses = _get_addresses(start_block, end_block, skip)
         if addresses is None:
             break
         else:
             ACTIVE_ADDRESSES.update(addresses)
-            print(len(ACTIVE_ADDRESSES))
+            print(f"Total Active Addresses: {len(ACTIVE_ADDRESSES)}")
         i += 1
 
     active_addresses_json = {
+        "startTime": START_DATETIME,
+        "endTime": END_DATETIME,
         "count": len(ACTIVE_ADDRESSES),
-        "addresses": ACTIVE_ADDRESSES,
+        "addresses": list(ACTIVE_ADDRESSES),
     }
 
-    filename = f"active-addresses-{START_TIMESTAMP}-{END_TIMESTAMP}.json"
-    print("Writing addresses to ./{filename}...")
+    filename = f"active-addresses-{START_DATETIME}-{END_DATETIME}.json"
+    print("Writing addresses to ./output/{filename}...")
     with open(
         filename,
         "w",
@@ -56,19 +68,26 @@ def _get_addresses(start_block, end_block, skip):
         try:
             url = f"{TRACKER_ENDPOINT}/transactions?start_block_number={start_block}&end_block_number={end_block}&limit={LIMIT}&skip={skip}"
             r = requests.get(url)
-            data = r.json()
-            if len(data) > 0:
-                addresses = set(
-                    [
-                        transaction["from_address"]
-                        for transaction in data
-                        if transaction["from_address"] != ""
-                    ]
-                )
-                return addresses
+            # Tracker API returns 204 if there is no data.
+            if r.status_code == 204:
+                return None
+            elif r.status_code == 200:
+                data = r.json()
+                if len(data) > 0:
+                    addresses = set(
+                        [
+                            transaction["from_address"]
+                            for transaction in data
+                            if transaction["from_address"] != ""
+                        ]
+                    )
+                    return addresses
+                else:
+                    return None
             else:
                 return None
-        except:
+        except Exception as e:
+            print(e)
             sleep(1)
             continue
 
